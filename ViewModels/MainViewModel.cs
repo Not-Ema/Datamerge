@@ -32,7 +32,6 @@ namespace Datamerge.ViewModels
         [ObservableProperty] private bool _generatePeriods = false;
         [ObservableProperty] private bool _cleanJobType = false;
 
-        // Vista Previa Dinámica
         [ObservableProperty]
         private ObservableCollection<object> _previewSource = new();
 
@@ -46,11 +45,39 @@ namespace Datamerge.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(TargetColumnInfo))]
         private ColumnItem? _targetColumn;
+
         public string TargetColumnInfo => TargetColumn != null
-            ? $"Destino: {TargetColumn.HeaderName}"
-            : "Selecciona destino (Click Derecho)";
+            ? $"Destino: {TargetColumn.HeaderName} (Selecciona columnas para unir)"
+            : "Selecciona una columna Destino (Clic Derecho o Menú)";
+
+        private void UpdateMergeVisuals()
+        {
+            foreach (var col in Columns)
+            {
+                col.IsTargetMode = (_targetColumn != null && col == _targetColumn);
+                if (_targetColumn != null && col != _targetColumn)
+                    col.CanBeMergedIntoTarget = _targetColumn.CanMergeWith(col);
+                else
+                    col.CanBeMergedIntoTarget = false;
+            }
+        }
 
         // --- Comandos ---
+
+        // NUEVO: Comandos de Renombrado
+        [RelayCommand]
+        private void StartRenaming(ColumnItem item)
+        {
+            item.IsRenaming = true;
+        }
+
+        [RelayCommand]
+        private void FinishRenaming(ColumnItem item)
+        {
+            item.IsRenaming = false;
+            // Si la columna es el Target actual, actualizamos el texto de info
+            if (TargetColumn == item) OnPropertyChanged(nameof(TargetColumnInfo));
+        }
 
         [RelayCommand]
         private async Task RefreshPreview()
@@ -62,7 +89,6 @@ namespace Datamerge.ViewModels
             }
 
             IsBusy = true;
-
             await Task.Run(() =>
             {
                 var rawData = _excelService.GeneratePreview(
@@ -74,14 +100,12 @@ namespace Datamerge.ViewModels
                 );
 
                 var dynamicList = new ObservableCollection<object>();
-
                 if (rawData != null && rawData.Count > 0)
                 {
                     var activeHeaderNames = new HashSet<string>(
                         Columns.Where(c => c.IsSelected).Select(c => c.HeaderName),
                         StringComparer.OrdinalIgnoreCase
                     );
-
                     if (GeneratePeriods) { activeHeaderNames.Add("PeriodoL"); activeHeaderNames.Add("PeriodoA"); }
 
                     foreach (var rowDict in rawData)
@@ -99,13 +123,8 @@ namespace Datamerge.ViewModels
                         if (hasData) dynamicList.Add(expando);
                     }
                 }
-
-                _window.DispatcherQueue.TryEnqueue(() =>
-                {
-                    PreviewSource = dynamicList;
-                });
+                _window.DispatcherQueue.TryEnqueue(() => { PreviewSource = dynamicList; });
             });
-
             IsBusy = false;
         }
 
@@ -208,25 +227,48 @@ namespace Datamerge.ViewModels
             Columns.Clear();
             foreach (var c in customCols) Columns.Add(c);
             foreach (var kvp in masterMap) { kvp.Value.RefreshSourceCount(); Columns.Add(kvp.Value); }
+            UpdateMergeVisuals();
         }
 
         [RelayCommand] private void AddCustomColumn() => Columns.Insert(0, new ColumnItem { HeaderName = "Nueva Columna", IsCustom = true, IsSelected = true });
 
-        // ESTE ES EL COMANDO QUE USA EL BOTÓN ELIMINAR
-        [RelayCommand] private void RemoveColumn(ColumnItem item) { if (Columns.Contains(item)) Columns.Remove(item); if (TargetColumn == item) TargetColumn = null; }
+        [RelayCommand]
+        private void RemoveColumn(ColumnItem item)
+        {
+            if (Columns.Contains(item)) Columns.Remove(item);
+            if (TargetColumn == item) TargetColumn = null;
+            UpdateMergeVisuals();
+        }
 
         [RelayCommand] void SelectAllColumns() { foreach (var c in Columns) c.IsSelected = true; }
         [RelayCommand] void DeselectAllColumns() { foreach (var c in Columns) c.IsSelected = false; }
-        [RelayCommand] void ClearAll() { Files.Clear(); Columns.Clear(); TargetColumn = null; PreviewSource.Clear(); }
-        [RelayCommand] private void SetAsTarget(ColumnItem item) => TargetColumn = item;
+
+        [RelayCommand]
+        void ClearAll()
+        {
+            Files.Clear(); Columns.Clear(); TargetColumn = null;
+            UpdateMergeVisuals(); PreviewSource.Clear();
+        }
+
+        [RelayCommand]
+        private void SetAsTarget(ColumnItem item)
+        {
+            if (TargetColumn == item) TargetColumn = null; else TargetColumn = item;
+            UpdateMergeVisuals();
+        }
+
         [RelayCommand]
         private void MergeIntoTarget(ColumnItem sourceItem)
         {
             if (TargetColumn == null || sourceItem == TargetColumn || !TargetColumn.CanMergeWith(sourceItem)) return;
-            foreach (var mapping in sourceItem.FileMappings) if (!TargetColumn.FileMappings.ContainsKey(mapping.Key)) TargetColumn.FileMappings[mapping.Key] = mapping.Value;
+            foreach (var mapping in sourceItem.FileMappings)
+                if (!TargetColumn.FileMappings.ContainsKey(mapping.Key))
+                    TargetColumn.FileMappings[mapping.Key] = mapping.Value;
             Columns.Remove(sourceItem);
             TargetColumn.RefreshSourceCount();
+            UpdateMergeVisuals();
         }
+
         [RelayCommand]
         private void InjectEmptyColumns()
         {
@@ -241,6 +283,7 @@ namespace Datamerge.ViewModels
             InsertOrMove("SUBCATEGORIA", "Barrio_desc");
             InsertOrMove("FECHA_PAGO", "Medidor");
             InsertOrMove("USRS_LEGAL", "FECHA_PAGO");
+            UpdateMergeVisuals();
         }
     }
 }
