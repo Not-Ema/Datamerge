@@ -20,13 +20,14 @@ namespace Datamerge.Services
         // Helpers de negocio
         string ExtractPeriodSmart(object? rawValue);
         string CleanJobValue(string? rawValue);
+        bool IsJobColumn(string headerName); // <--- NUEVO MÉTODO AGREGADO AL CONTRATO
 
         List<Dictionary<string, object>> GeneratePreview(
-        IEnumerable<string> filePaths,
-        List<ColumnItem> columns,
-        bool generatePeriods,
-        bool cleanJobType,
-        int maxRows = 10);
+            IEnumerable<string> filePaths,
+            List<ColumnItem> columns,
+            bool generatePeriods,
+            bool cleanJobType,
+            int maxRows = 10);
     }
 
     // 2. IMPLEMENTACIÓN DE LA CLASE (La lógica)
@@ -129,12 +130,22 @@ namespace Datamerge.Services
             return parts.Length > 0 ? parts[0].Trim() : rawValue;
         }
 
+        // --- NUEVA LÓGICA CENTRALIZADA ---
+        public bool IsJobColumn(string headerName)
+        {
+            if (string.IsNullOrWhiteSpace(headerName)) return false;
+
+            // Comprueba si contiene "Tipo" Y "Trabajo" ignorando mayúsculas/minúsculas
+            return headerName.Contains("Tipo", StringComparison.OrdinalIgnoreCase) &&
+                   headerName.Contains("Trabajo", StringComparison.OrdinalIgnoreCase);
+        }
+
         public List<Dictionary<string, object>> GeneratePreview(
-        IEnumerable<string> filePaths,
-        List<ColumnItem> columns,
-        bool generatePeriods,
-        bool cleanJobType,
-        int maxRows = 10)
+            IEnumerable<string> filePaths,
+            List<ColumnItem> columns,
+            bool generatePeriods,
+            bool cleanJobType,
+            int maxRows = 10)
         {
             var previewRows = new List<Dictionary<string, object>>();
             var activeColumns = columns.Where(c => c.IsSelected).ToList();
@@ -142,11 +153,8 @@ namespace Datamerge.Services
 
             foreach (var path in filePaths)
             {
-                if (rowCount >= maxRows) break; // Detener si ya tenemos suficientes filas
+                if (rowCount >= maxRows) break;
 
-                // Usamos ReadFile (que ya implementaste)
-                // Nota: Para optimizar más, ReadFile podría aceptar un "limit", 
-                // pero por ahora leemos el archivo y cortamos el bucle.
                 var rawData = ReadFile(path);
 
                 foreach (var rowData in rawData)
@@ -179,9 +187,8 @@ namespace Datamerge.Services
                                 if (rowData.TryGetValue(originalName, out var value)) finalValue = value;
                             }
 
-                            if (finalValue != null && cleanJobType &&
-                                col.HeaderName.Contains("Tipo", StringComparison.OrdinalIgnoreCase) &&
-                                col.HeaderName.Contains("Trabajo", StringComparison.OrdinalIgnoreCase))
+                            // USAMOS EL NUEVO MÉTODO IsJobColumn
+                            if (finalValue != null && cleanJobType && IsJobColumn(col.HeaderName))
                             {
                                 finalValue = CleanJobValue(finalValue.ToString());
                             }

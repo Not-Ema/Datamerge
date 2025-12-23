@@ -64,7 +64,6 @@ namespace Datamerge.ViewModels
 
         // --- Comandos ---
 
-        // NUEVO: Comandos de Renombrado
         [RelayCommand]
         private void StartRenaming(ColumnItem item)
         {
@@ -75,8 +74,55 @@ namespace Datamerge.ViewModels
         private void FinishRenaming(ColumnItem item)
         {
             item.IsRenaming = false;
-            // Si la columna es el Target actual, actualizamos el texto de info
             if (TargetColumn == item) OnPropertyChanged(nameof(TargetColumnInfo));
+        }
+
+        // --- NUEVO COMANDO: Separar (Desvincular) columna ---
+        [RelayCommand]
+        private void DetachMapping(object item)
+        {
+            // El parámetro viene como KeyValuePair<string, string> desde el XAML
+            if (item is KeyValuePair<string, string> kvp)
+            {
+                var filePath = kvp.Key;
+                var originalName = kvp.Value;
+
+                // Buscamos a qué columna pertenece este mapeo
+                var parentColumn = Columns.FirstOrDefault(c => c.FileMappings.ContainsKey(filePath) && c.FileMappings[filePath] == originalName);
+
+                if (parentColumn != null)
+                {
+                    // 1. Eliminar de la columna actual
+                    parentColumn.FileMappings.Remove(filePath);
+                    parentColumn.RefreshSourceCount();
+
+                    // 2. Crear nueva columna independiente
+                    var newCol = new ColumnItem
+                    {
+                        HeaderName = originalName,
+                        IsCustom = false,
+                        IsSelected = true
+                    };
+                    newCol.FileMappings.Add(filePath, originalName);
+                    newCol.RefreshSourceCount();
+
+                    // 3. Insertar justo debajo de la original para visibilidad
+                    int index = Columns.IndexOf(parentColumn);
+                    if (index >= 0 && index < Columns.Count - 1)
+                        Columns.Insert(index + 1, newCol);
+                    else
+                        Columns.Add(newCol);
+
+                    // 4. Limpieza opcional: Si la columna padre quedó vacía y no es manual, borrarla
+                    if (parentColumn.FileMappings.Count == 0 && !parentColumn.IsCustom)
+                    {
+                        if (TargetColumn == parentColumn) TargetColumn = null;
+                        Columns.Remove(parentColumn);
+                    }
+
+                    UpdateMergeVisuals();
+                }
+            }
         }
 
         [RelayCommand]
@@ -187,7 +233,8 @@ namespace Datamerge.ViewModels
                             if (col.FileMappings.TryGetValue(sourceFile.FullPath, out string originalName))
                                 if (rowData.TryGetValue(originalName, out var value)) finalValue = value;
 
-                            if (finalValue != null && CleanJobType && col.HeaderName.Contains("Tipo") && col.HeaderName.Contains("Trabajo"))
+                            // FIX: Usar IsJobColumn para detectar mayúsculas y variantes
+                            if (finalValue != null && CleanJobType && _excelService.IsJobColumn(col.HeaderName))
                                 finalValue = _excelService.CleanJobValue(finalValue.ToString());
 
                             newRow[col.HeaderName] = finalValue ?? "";

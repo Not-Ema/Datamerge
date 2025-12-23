@@ -2,6 +2,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using System.Collections.Generic;
+using System.Linq; // Necesario para ToList()
 
 namespace Datamerge.Models
 {
@@ -20,25 +21,29 @@ namespace Datamerge.Models
         public Visibility CustomVisibility => IsCustom ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FileVisibility => IsCustom ? Visibility.Collapsed : Visibility.Visible;
 
-        // --- SISTEMA DE RENOMBRADO (NUEVO) ---
+        // --- SISTEMA DE RENOMBRADO ---
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(NameReadVisibility))]
         [NotifyPropertyChangedFor(nameof(NameEditVisibility))]
         private bool _isRenaming = false;
 
-        // Si NO estamos renombrando, mostramos el texto y el lápiz
         public Visibility NameReadVisibility => IsRenaming ? Visibility.Collapsed : Visibility.Visible;
-        // Si ESTAMOS renombrando, mostramos el TextBox y el Check
         public Visibility NameEditVisibility => IsRenaming ? Visibility.Visible : Visibility.Collapsed;
 
         // --- SISTEMA DE IDENTIFICACIÓN DE ORIGEN (ETL) ---
         public Dictionary<string, string> FileMappings { get; } = new();
+
+        // NUEVO: Propiedad para exponer la lista al Flyout del XAML
+        public IEnumerable<KeyValuePair<string, string>> MappingsList => FileMappings.ToList();
 
         [ObservableProperty] private string _sourceInfo = "";
 
         public void RefreshSourceCount()
         {
             SourceInfo = IsCustom ? "Manual" : $"{FileMappings.Count} fuente(s)";
+
+            // NUEVO: Avisar a la interfaz que la lista de detalles cambió
+            OnPropertyChanged(nameof(MappingsList));
         }
 
         public bool CanMergeWith(ColumnItem other)
